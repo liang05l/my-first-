@@ -1,0 +1,78 @@
+name: Build Realme GT Neo5 Kernel with HymoFS
+
+# 触发条件：推送到 main 分支时自动运行
+on:
+  push:
+    branches: [ "main" ]
+
+# 环境变量，方便统一修改
+env:
+  # 使用你提供的 manifest 仓库
+  REPO_MANIFEST: "https://github.com/Quantom2/gt_neo5_kernel_manifest.git"
+  # 使用你提供的 manifest 文件
+  REPO_MANIFEST_XML: "realme_gt_neo5.xml"
+  # 使用你提供的分支
+  REPO_BRANCH: "oneplus/sm8475"
+  # 设置默认的 defconfig 路径
+  KERNEL_DEFCONFIG: "arch/arm64/configs/gki_defconfig"
+
+jobs:
+  build:
+    # 在最新的 Ubuntu 系统上运行
+    runs-on: ubuntu-latest
+    # 设置超时时间，避免因网络问题卡死
+    timeout-minutes: 60
+
+    steps:
+    # 1. 检出当前仓库的代码（为了获取你提供的 setup.sh 脚本）
+    - name: Checkout HymoFS setup script
+      uses: actions/checkout@v4
+
+    # 2. 设置 Python 环境（repo 工具需要 Python 3.6+）
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    # 3. 安装 repo 工具
+    - name: Install Repo tool
+      run: |
+        curl -s https://storage.googleapis.com/git-repo-downloads/repo > /usr/local/bin/repo
+        chmod a+x /usr/local/bin/repo
+
+    # 4. 拉取内核源码
+    - name: Initialize and sync kernel source
+      run: |
+        # 根据你提供的 README 进行初始化
+        repo init -u $REPO_MANIFEST -b $REPO_BRANCH -m $REPO_MANIFEST_XML --depth=1 --no-tags
+        # 同步代码
+        repo sync --force-sync --optimized-fetch --no-tags --no-clone-bundle --prune -j4
+
+    # 5. 应用 HymoFS 补丁
+    - name: Apply HymoFS patch
+      # 使用非交互式模式，直接应用补丁
+      run: |
+        # 将 setup.sh 复制到内核源码根目录
+        cp setup.sh ./
+        # 执行 setup.sh 脚本，传递 defconfig 参数
+        # 使用 -s 参数，让脚本从标准输入读取参数
+        # 使用 defconfig 参数指定 defconfig 文件
+        # 使用 with-susfs 参数（根据你提供的文档，这是标准模式）
+        echo "defconfig $KERNEL_DEFCONFIG with-susfs" | bash -s < setup.sh
+
+    # 6. 编译内核
+    - name: Build kernel
+      run: |
+        # 根据你提供的 README 执行构建命令
+        ./kernel_platform/oplus/build/oplus_build_kernel.sh waipio gki
+
+    # 7. 上传构建产物
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: kernel-build-output
+        # 上传所有构建生成的文件
+        path: |
+          out/
+        # 保留 7 天
+        retention-days: 7
